@@ -1,112 +1,30 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
-
-/**
- * @title BridgeFlow Hub
- * @dev A secure cross-chain token bridge protocol with advanced security features
- * @notice This contract enables seamless asset transfers between different blockchain networks
- */
-contract Project {
-    
-    // State Variables
+State Variables
     address public owner;
     address public validator;
     bool public paused;
     
-    // Bridge configuration
-    uint256 public bridgeFee = 0.001 ether; // 0.1% bridge fee
+    0.1% bridge fee
     uint256 public minBridgeAmount = 0.01 ether;
     uint256 public maxBridgeAmount = 100 ether;
     uint256 public dailyLimit = 1000 ether;
     uint256 public currentDailyVolume;
     uint256 public lastResetTimestamp;
     
-    // Nonce tracking for replay protection
-    uint256 public nonce;
-    mapping(uint256 => bool) public processedNonces;
-    
-    // Chain IDs
+    Chain IDs
     uint256 public immutable currentChainId;
     mapping(uint256 => bool) public supportedChains;
     
-    // Token management
-    mapping(address => bool) public whitelistedTokens;
-    mapping(address => uint256) public tokenBalances;
-    
-    // Rate limiting
+    Rate limiting
     mapping(address => mapping(uint256 => uint256)) public userDailyVolume;
     mapping(address => uint256) public lastUserReset;
     uint256 public userDailyLimit = 50 ether;
     
-    // Structs
-    struct BridgeRequest {
-        address sender;
-        address recipient;
-        address token;
-        uint256 amount;
-        uint256 targetChainId;
-        uint256 timestamp;
-        uint256 nonce;
-        bool completed;
-    }
-    
-    struct TokenInfo {
-        string name;
-        string symbol;
-        uint8 decimals;
-        bool isActive;
-    }
-    
-    // Mappings
+    Mappings
     mapping(uint256 => BridgeRequest) public bridgeRequests;
     mapping(address => TokenInfo) public tokenRegistry;
     mapping(address => uint256[]) public userBridgeHistory;
     
-    // Events
-    event BridgeInitiated(
-        uint256 indexed nonce,
-        address indexed sender,
-        address indexed recipient,
-        address token,
-        uint256 amount,
-        uint256 targetChainId,
-        uint256 timestamp
-    );
-    
-    event BridgeCompleted(
-        uint256 indexed nonce,
-        address indexed recipient,
-        address token,
-        uint256 amount,
-        uint256 timestamp
-    );
-    
-    event TokenLocked(
-        address indexed token,
-        address indexed user,
-        uint256 amount,
-        uint256 timestamp
-    );
-    
-    event TokenReleased(
-        address indexed token,
-        address indexed user,
-        uint256 amount,
-        uint256 timestamp
-    );
-    
-    event TokenWhitelisted(address indexed token, string name, string symbol);
-    event TokenRemoved(address indexed token);
-    event ChainAdded(uint256 indexed chainId);
-    event ChainRemoved(uint256 indexed chainId);
-    event ValidatorUpdated(address indexed oldValidator, address indexed newValidator);
-    event FeeUpdated(uint256 oldFee, uint256 newFee);
-    event LimitsUpdated(uint256 minAmount, uint256 maxAmount, uint256 dailyLimit);
-    event EmergencyWithdrawal(address indexed token, uint256 amount, address indexed to);
-    event ContractPaused(address indexed by, uint256 timestamp);
-    event ContractUnpaused(address indexed by, uint256 timestamp);
-    
-    // Modifiers
+    Modifiers
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
         _;
@@ -139,31 +57,13 @@ contract Project {
         _;
     }
     
-    // Reentrancy Guard
-    uint256 private locked = 1;
-    modifier nonReentrant() {
-        require(locked == 1, "Reentrancy detected");
-        locked = 2;
-        _;
-        locked = 1;
-    }
-    
-    // Constructor
+    Constructor
     constructor(address _validator) {
         require(_validator != address(0), "Invalid validator address");
         owner = msg.sender;
         validator = _validator;
         
-        // Get current chain ID
-        uint256 chainId;
-        assembly {
-            chainId := chainid()
-        }
-        currentChainId = chainId;
-        
-        lastResetTimestamp = block.timestamp;
-        
-        // Add current chain as supported
+        Add current chain as supported
         supportedChains[currentChainId] = true;
         emit ChainAdded(currentChainId);
     }
@@ -270,26 +170,11 @@ contract Project {
         uint256 fee = (amount * bridgeFee) / 1 ether;
         uint256 netAmount = amount - fee;
         
-        // Check rate limits
-        resetDailyLimitIfNeeded();
-        resetUserDailyLimitIfNeeded(msg.sender);
-        
-        require(currentDailyVolume + netAmount <= dailyLimit, "Daily limit exceeded");
-        require(
-            userDailyVolume[msg.sender][block.timestamp / 1 days] + netAmount <= userDailyLimit,
-            "User daily limit exceeded"
-        );
-        
-        // Update volumes
+        Update volumes
         currentDailyVolume += netAmount;
         userDailyVolume[msg.sender][block.timestamp / 1 days] += netAmount;
         
-        // Create bridge request
-        nonce++;
-        bridgeRequests[nonce] = BridgeRequest({
-            sender: msg.sender,
-            recipient: recipient,
-            token: address(0), // Native token
+        Native token
             amount: netAmount,
             targetChainId: targetChainId,
             timestamp: block.timestamp,
@@ -331,11 +216,7 @@ contract Project {
         processedNonces[requestNonce] = true;
         
         if (token == address(0)) {
-            // Release native tokens
-            require(address(this).balance >= amount, "Insufficient contract balance");
-            payable(recipient).transfer(amount);
-        } else {
-            // For ERC20 tokens (would require additional implementation)
+            For ERC20 tokens (would require additional implementation)
             revert("ERC20 tokens not yet implemented");
         }
         
@@ -505,46 +386,13 @@ contract Project {
             require(address(this).balance >= amount, "Insufficient balance");
             payable(to).transfer(amount);
         } else {
-            // For ERC20 tokens (would require additional implementation)
-            revert("ERC20 tokens not yet implemented");
-        }
-        
-        emit EmergencyWithdrawal(token, amount, to);
-    }
-    
-    /**
-     * @dev Collect accumulated fees
-     * @param to Address to send fees to
-     */
-    function collectFees(address to) external onlyOwner validAddress(to) {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No fees to collect");
-        
-        payable(to).transfer(balance);
-    }
-    
-    /**
-     * @dev Get contract balance
-     */
-    function getContractBalance() external view returns (uint256) {
-        return address(this).balance;
-    }
-    
-    /**
-     * @dev Transfer ownership to a new address
-     * @param newOwner The new owner address
-     */
-    function transferOwnership(address newOwner) external onlyOwner validAddress(newOwner) {
-        owner = newOwner;
-    }
-    
-    // Receive function to accept native tokens
+            Receive function to accept native tokens
     receive() external payable {
-        // Accept deposits
-    }
-    
-    // Fallback function
+        Fallback function
     fallback() external payable {
         revert("Invalid function call");
     }
 }
+// 
+Contract End
+// 
